@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+
+# PyTorch
+*.pth
+*.pt
+checkpoints/
+
+# Data
+data/
+datasets/
+*.jpg
+*.png
+*.obj
+*.stl
+*.urdf
+
+# Logs
+logs/
+runs/
+*.log
+videos/
+recordings/
+
+# PyBullet
+*.bullet
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Results
+results/
+outputs/
+experiments/
