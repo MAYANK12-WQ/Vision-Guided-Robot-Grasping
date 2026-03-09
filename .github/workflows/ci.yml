@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install numpy matplotlib pytest
+
+      - name: Test GraspNet architecture
+        run: python -c "
+import torch
+import sys
+sys.path.insert(0, '.')
+from models.grasp_net import GraspNet, PixelwiseGraspNet
+
+# Test GraspNet
+model = GraspNet(input_channels=4, pretrained=False)
+x = torch.randn(2, 4, 224, 224)
+out = model(x)
+assert out.shape == (2, 5), f'Expected (2,5), got {out.shape}'
+assert (out[:, 0:2] >= 0).all() and (out[:, 0:2] <= 1).all(), 'x,y not in [0,1]'
+assert (out[:, 4] >= 0).all() and (out[:, 4] <= 1).all(), 'quality not in [0,1]'
+params = model.get_num_parameters()
+assert params > 1_000_000, f'Suspiciously few params: {params}'
+print(f'GraspNet OK  |  params={params:,}  |  output={out.shape}')
+
+# Test PixelwiseGraspNet
+model2 = PixelwiseGraspNet(input_channels=4)
+out2 = model2(x)
+assert out2['quality'].shape == (2, 1, 224, 224), f'Wrong quality shape: {out2[\"quality\"].shape}'
+assert (out2['quality'] >= 0).all() and (out2['quality'] <= 1).all(), 'quality not in [0,1]'
+print(f'PixelwiseGraspNet OK  |  quality={out2[\"quality\"].shape}')
+"
+
+      - name: Test grasp output activations
+        run: python -c "
+import torch, sys
+sys.path.insert(0, '.')
+from models.grasp_net import GraspNet
+
+model = GraspNet(input_channels=4, pretrained=False)
+model.eval()
+with torch.no_grad():
+    x = torch.randn(8, 4, 224, 224)
+    out = model(x)
+
+# x, y must be in [0,1]
+assert out[:, :2].min() >= 0 and out[:, :2].max() <= 1, 'xy out of range'
+# angle must be in [-pi, pi]
+import math
+assert out[:, 2].min() >= -math.pi and out[:, 2].max() <= math.pi, 'angle out of range'
+# width, quality must be in [0,1]
+assert out[:, 3:].min() >= 0 and out[:, 3:].max() <= 1, 'width/quality out of range'
+print('Activation bounds OK for all outputs')
+"
+
+      - name: Lint (errors only)
+        run: |
+          pip install flake8
+          flake8 models/ scripts/ --max-line-length=120 --select=E9,F63,F7,F82
+
+  generate-plots:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install numpy matplotlib
+      - name: Generate demo plots
+        run: python scripts/generate_grasp_plots.py --out docs/images/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grasp-demo-plots
+          path: docs/images/
+          retention-days: 30
